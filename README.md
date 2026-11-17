@@ -1,6 +1,6 @@
 # n8n-Workflows
 
-Fünf n8n-Workflows aus meiner Praxis, aufbereitet zum Nachbauen. Jeder läuft ohne Cloud-Zwang auf einer self-hosted n8n-Instanz und ist im Workflow selbst mit Notizen dokumentiert.
+Sechs n8n-Workflows aus meiner Praxis, aufbereitet zum Nachbauen. Jeder läuft ohne Cloud-Zwang auf einer self-hosted n8n-Instanz und ist im Workflow selbst mit Notizen dokumentiert.
 
 | Workflow | Was er löst | Trigger | Credentials |
 |---|---|---|---|
@@ -9,6 +9,7 @@ Fünf n8n-Workflows aus meiner Praxis, aufbereitet zum Nachbauen. Jeder läuft o
 | [03 · Beleg-Erfassung](03-beleg-erfassung/) | Liest Rechnungsdaten aus PDF-Anhängen und trennt sicher Erkanntes von Fällen zur Prüfung | IMAP | IMAP |
 | [04 · Freigabe vor Zahlung](04-freigabe-vor-zahlung/) | Keine Rechnung wird zahlbar ohne Freigabe der zuständigen Person: Link, Bestätigungsseite, Protokoll | täglich 08:00, Webhook | SMTP |
 | [05 · Regulatorik-Monitor](05-regulatorik-monitor/) | Beobachtet KI-VO und Datenschutz, lässt Änderungen vom eigenen Sprachmodell zusammenfassen, prüft mit festen Regeln und Evals | täglich 06:15 | SMTP |
+| [06 · E-Rechnung prüfen (KoSIT)](06-erechnung-pruefen-kosit/) | Prüft XRechnung und ZUGFeRD lokal gegen EN 16931, mit deutschem Prüfbericht je Rechnung | täglich 07:00 | keine |
 
 ## Importieren
 
@@ -33,6 +34,7 @@ Alle Workflows sind bereinigt: keine echten Zugangsdaten, keine Instanz-ID, kein
 | 04 | Webhook-Pfad `BITTE-EIGENEN-PFAD-EINSETZEN` (2 Webhooks + `linkBasis`) | eigener Pfad |
 | 04 | Personen in `KONFIG.zustaendig` (`@example.de`) | eigene Zuständige |
 | 05 | `OLLAMA_URL`, `MODELL`, `STATE_DIR` | eigene Ollama-Instanz und Ordner |
+| 06 | `validatorUrl`, Ordner unter `/data/erechnung` | eigener KoSIT-Validator und Ordner |
 | 04, 05 | Absender/Empfänger `@example.de` | eigene Adressen |
 
 ## Grundsätze

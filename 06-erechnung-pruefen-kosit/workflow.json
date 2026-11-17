@@ -1,0 +1,139 @@
+{
+  "name": "E-Rechnung prüfen (KoSIT)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## E-Rechnung prüfen (KoSIT)\n\nPrüft eingehende **XRechnung** (XML) und **ZUGFeRD/Factur-X** (PDF mit eingebettetem XML) technisch gegen **EN 16931** mit dem offiziellen KoSIT-Validator – lokal, ohne Cloud. Je Rechnung ein deutscher Prüfbericht und eine Zeile im Monatsprotokoll.\n\n**Vor dem ersten Lauf:**\n1. KoSIT-Validator mit XRechnung-Konfiguration als Container im Daemon-Modus starten (nur im eigenen Netz).\n2. Im Knoten **Einstellungen** Ordner und `validatorUrl` anpassen.\n3. `NODE_FUNCTION_ALLOW_BUILTIN=fs,path,zlib` setzen und die Ordner in den n8n-Container einbinden.\n\n**Testen:** Muster-E-Rechnungen (z. B. aus den offiziellen XRechnung-Testsuiten) in den Eingang legen → **Start**.\n\n**Grenzen:** Technische Prüfung, kein Steuerurteil. „Abgelehnt“ ist ein Hinweis – die Entscheidung bleibt bei Buchhaltung oder Kanzlei. Dateien werden nicht verschoben oder gelöscht.",
+        "height": 520,
+        "width": 560
+      },
+      "id": "832b91ee-84d4-4724-a0a5-c7d4f533bf2c",
+      "name": "Anleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "f47d725a-7664-4edb-a714-f18dba77128b",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "df6069ef-5db7-4fb7-ba1e-595dc8d75c00",
+      "name": "Täglich 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== Einstellungen · E-Rechnung prüfen (KoSIT) · nur hier anpassen =====\n// Prüft XRechnung (XML) und ZUGFeRD/Factur-X (PDF mit eingebettetem XML) technisch gegen EN 16931.\n// Ergebnis ist ein technischer Befund für Buchhaltung oder Kanzlei – kein Steuer- oder Rechtsurteil.\nconst konfig = {\n  eingang: '/data/erechnung/eingang',          // ANPASSEN: Ordner mit Rechnungen (PDF/XML)\n  berichte: '/data/erechnung/pruefberichte',   // deutscher Prüfbericht je Rechnung (HTML), nach Monat\n  protokoll: '/data/erechnung/protokoll',      // CSV je Monat + Merkliste bereits geprüfter Dateien\n  validatorUrl: 'http://kosit:8080/',          // ANPASSEN: KoSIT-Validator im Daemon-Modus, nur im eigenen Netz\n};\nreturn [{ json: { konfig } }];"
+      },
+      "id": "0dc08b4f-7d48-4288-94b6-1de0cb26f019",
+      "name": "Einstellungen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Liest neue PDF- und XML-Dateien aus dem Eingangsordner. Bereits geprüfte Dateien (Name + Änderungszeit) werden übersprungen.\n// Aus PDFs wird das eingebettete XML (ZUGFeRD/Factur-X) gelesen; PDFs ohne XML sind keine E-Rechnung und werden nur protokolliert.\nconst fs = require('fs'); const path = require('path'); const zlib = require('zlib');\nconst k = $('Einstellungen').first().json.konfig;\nfs.mkdirSync(k.protokoll, { recursive: true });\nconst merk = path.join(k.protokoll, 'geprueft.json');\nlet gesehen = {}; try { gesehen = JSON.parse(fs.readFileSync(merk, 'utf8')); } catch (e) {}\nfunction xmlAusPdf(buf) {\n  const s = buf.toString('latin1'); let pos = 0;\n  while (true) {\n    const a = s.indexOf('stream', pos); if (a < 0) break;\n    const b = s.indexOf('endstream', a); if (b < 0) break;\n    let start = a + 6; if (s[start] === '\\r') start++; if (s[start] === '\\n') start++;\n    const roh = buf.subarray(start, b); pos = b + 9;\n    if (roh.length < 40) continue;\n    const kandidaten = [];\n    try { kandidaten.push(zlib.inflateSync(roh).toString('utf8')); } catch (e) { try { kandidaten.push(zlib.inflateRawSync(roh).toString('utf8')); } catch (e2) {} }\n    kandidaten.push(roh.toString('utf8'));\n    for (const text of kandidaten) {\n      const t = text.replace(/^﻿/, '').trimStart();\n      if (/^<\\?xml|^<rsm:|^<Invoice|^<ubl:/.test(t) && /CrossIndustryInvoice|urn:oasis:names:specification:ubl/.test(t)) return t;\n    }\n  }\n  return '';\n}\nconst out = [];\nfor (const name of fs.readdirSync(k.eingang).filter(f => /\\.(pdf|xml)$/i.test(f)).sort()) {\n  const voll = path.join(k.eingang, name);\n  const schluessel = name + '|' + fs.statSync(voll).mtimeMs;\n  if (gesehen[schluessel]) continue;\n  const buf = fs.readFileSync(voll);\n  const istXml = /\\.xml$/i.test(name);\n  const xml = istXml ? buf.toString('utf8').replace(/^﻿/, '') : xmlAusPdf(buf);\n  out.push({ json: { datei: name, schluessel, xml, hatXml: !!xml } });\n}\nreturn out.length ? out : [{ json: { leer: true } }];"
+      },
+      "id": "e1fd8eb9-5dd3-4bea-bf82-a693728528b2",
+      "name": "Dateien einlesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== KoSIT-Validator · EN 16931 / XRechnung =====\n// Schickt jeden XML-Datensatz an den KoSIT-Validator und legt den deutschen Prüfbericht ab.\n// Ein abgelehnter Datensatz ist ein HINWEIS, kein Stopp: Ob die Rechnung so angenommen wird, entscheidet die Buchhaltung bzw. Kanzlei.\nconst fs = require('fs'); const path = require('path');\nconst k = $('Einstellungen').first().json.konfig;\nconst url = k.validatorUrl;\nconst mon = $now.setZone('Europe/Berlin').toFormat('yyyy-MM');\nconst berichtDir = path.join(k.berichte, mon);\nconst csvDatei = path.join(k.protokoll, 'erechnung-' + mon + '.csv');\nconst merk = path.join(k.protokoll, 'geprueft.json');\nconst pz = s => String(s == null ? '' : s).replace(/[;\\r\\n]+/g, ' ').trim();\nconst csvZeile = f => { if (!fs.existsSync(csvDatei)) fs.writeFileSync(csvDatei, '﻿Zeitpunkt;Datei;Szenario;Ergebnis;Fehler;Warnungen;Regeln;Pruefbericht\\n'); fs.appendFileSync(csvDatei, f.map(pz).join(';') + '\\n'); };\n\nasync function sende(xml, name) {\n  const opt = { method: 'POST', url: url + encodeURIComponent(name), body: xml, headers: { 'Content-Type': 'application/xml' },\n                json: false, returnFullResponse: true, ignoreHttpStatusErrors: true, timeout: 60000 };\n  try { const r = await this.helpers.httpRequest(opt); return { status: r.statusCode, text: String(r.body || '') }; }\n  catch (e) {\n    if (typeof fetch !== 'function') throw e;\n    const r = await fetch(opt.url, { method: 'POST', body: xml, headers: opt.headers });\n    return { status: r.status, text: await r.text() };\n  }\n}\nfunction auswerten(text) {\n  const meldungen = [];\n  for (const m of text.matchAll(/<rep:message\\b([^>]*)>([\\s\\S]*?)<\\/rep:message>/g)) {\n    const a = m[1], level = (a.match(/level=\"([^\"]*)\"/) || [])[1] || '', code = (a.match(/code=\"([^\"]*)\"/) || [])[1] || '';\n    meldungen.push({ level, code, text: m[2].replace(/<[^>]+>/g, '').replace(/\\s+/g, ' ').trim() });\n  }\n  const i = text.indexOf('<rep:scenarioMatched>');\n  const szenario = i >= 0 ? ((text.slice(i).match(/<s:name>([^<]*)<\\/s:name>/) || [])[1] || '') : 'kein passendes Szenario';\n  const e = text.indexOf('<rep:explanation>'), f = text.indexOf('</rep:explanation>');\n  const html = e >= 0 && f > e ? text.slice(e + 17, f) : '';\n  return { meldungen, szenario, html };\n}\n\nconst sendeGebunden = sende.bind(this);\nlet gesehen = {}; try { gesehen = JSON.parse(fs.readFileSync(merk, 'utf8')); } catch (e) {}\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (j.leer) continue;\n  let er;\n  if (!j.hatXml) {\n    er = { ergebnis: 'keine E-Rechnung (PDF ohne XML-Datensatz)', szenario: '', fehler: 0, warnungen: 0, regeln: [], meldungen: [], bericht: '' };\n  } else {\n    try {\n      const r = await sendeGebunden(j.xml, j.datei.replace(/\\.[^.]+$/, '') + '.xml');\n      const a = auswerten(r.text);\n      const fehler = a.meldungen.filter(m => m.level === 'error'), warn = a.meldungen.filter(m => m.level === 'warning');\n      const ergebnis = r.status === 200 ? 'gültig' : r.status === 406 ? 'abgelehnt' : 'nicht geprüft (HTTP ' + r.status + ')';\n      let bericht = '';\n      if (a.html) {\n        fs.mkdirSync(berichtDir, { recursive: true });\n        bericht = path.join(berichtDir, j.datei.replace(/\\.[^.]+$/, '') + '_Pruefbericht.html');\n        fs.writeFileSync(bericht, '<!doctype html>' + a.html);\n      }\n      er = { ergebnis, szenario: a.szenario, fehler: fehler.length, warnungen: warn.length, regeln: [...new Set(fehler.map(m => m.code).filter(Boolean))], meldungen: fehler.slice(0, 5).map(m => m.text), bericht };\n    } catch (e) {\n      er = { ergebnis: 'nicht geprüft (Validator nicht erreichbar)', szenario: '', fehler: 0, warnungen: 0, regeln: [], meldungen: [String(e.message || e)], bericht: '' };\n    }\n  }\n  csvZeile([$now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd HH:mm:ss'), j.datei, er.szenario, er.ergebnis, er.fehler, er.warnungen, er.regeln.join(' '), er.bericht]);\n  if (!er.ergebnis.startsWith('nicht geprüft')) gesehen[j.schluessel] = $now.toISO();   // nicht erreichbar → beim nächsten Lauf erneut\n  out.push({ json: { datei: j.datei, ...er } });\n}\nfs.writeFileSync(merk, JSON.stringify(gesehen, null, 1));\nreturn out.length ? out : [{ json: { hinweis: 'Keine neuen Dateien im Eingang.' } }];"
+      },
+      "id": "57ff454b-b599-4aae-a924-3375a9e98c04",
+      "name": "KoSIT prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        680
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Einstellungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Täglich 07:00": {
+      "main": [
+        [
+          {
+            "node": "Einstellungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einstellungen": {
+      "main": [
+        [
+          {
+            "node": "Dateien einlesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateien einlesen": {
+      "main": [
+        [
+          {
+            "node": "KoSIT prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
